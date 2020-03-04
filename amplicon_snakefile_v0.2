@@ -1,0 +1,64 @@
+import os
+import yaml
+
+file_list = []
+
+for entry in os.scandir("data/"):
+    if entry.is_file():
+        file_list.append(entry.name)
+
+config_dict = {"samples":{i.split(".")[0]:"data/"+i for i in file_list}}
+
+with open("config.yaml","w") as handle:
+    yaml.dump(config_dict,handle)
+
+################################################################################
+
+configfile: "config.yaml"
+
+print("Starting amplicon analysis workflow")
+
+rule all:
+    input:
+        expand("data/{sample}_de_novo", sample = config["samples"])
+
+rule seqtk_qtrim:
+    input:
+        lambda wildcards: config["samples"][wildcards.sample]
+    output:
+        temp("data/{sample}.qtrim.fastq")
+    shell:
+        "seqtk trimfq -q 0.01 {input} > {output}"
+
+rule seqtk_clip:
+    input:
+        "data/{sample}.qtrim.fastq"
+    output:
+        temp("data/{sample}.clip.fastq")
+    shell:
+        "seqtk trimfq -b 20 -L 350 {input} > {output}"
+
+rule seqtk_lengthfilter:
+    input:
+        "data/{sample}.qtrim.fastq"
+    output:
+        "data/{sample}.clean.fastq"
+    shell:
+        "seqtk seq -L 50 {input} > {output}"
+
+rule bbnorm:
+    input:
+        "data/{sample}.clean.fastq"
+    output:
+        "data/{sample}.norm.fastq"
+    shell:
+        "bbnorm.sh -Xmx10g in={input} out={output} target=100"
+
+rule spades:
+    input:
+        "data/{sample}.norm.fastq"
+    output:
+        directory("data/{sample}_de_novo")
+    shell:
+        "spades.py --iontorrent --careful -k 21,33,55,77,99,127 -s {input}"
+        " -o {output}"
