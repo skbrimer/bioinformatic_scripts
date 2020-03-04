@@ -1,0 +1,53 @@
+import os
+import yaml
+
+file_list = []
+
+for entry in os.scandir("../ref_seq"):
+    if entry.is_file():
+        file_list.append(entry.name)
+
+config_dict = {"samples":{i.split("_")[-2]:"../ref_seq/"+i for i in file_list}}
+
+with open("config.yaml","w") as handle:
+    yaml.dump(config_dict,handle)
+
+###########################################################
+
+configfile: "config.yaml"
+
+rule all:
+    input:
+        expand("{sample}_depth.tsv", sample = config["samples"])
+
+rule minimap2:
+    input:
+        lambda wildcards: config["samples"][wildcards.sample]
+    output:
+        "{sample}_map.sam"
+    shell:
+        "minimap2 -a -x sr {input} ../LS19-3488-1_clean.fq > {output}"
+
+rule samtools_bam:
+    input:
+        "{sample}_map.sam"
+    output:
+        temp("{sample}_map.bam")
+    shell:
+        "samtools view -bS -o {output} {input}"
+
+rule samtools_sort:
+    input:
+        "{sample}_map.bam"
+    output:
+        "{sample}_map.srt.bam"
+    shell:
+        "samtools sort -O bam -o {output} {input}"
+
+rule samtools_depth:
+    input:
+        "{sample}_map.srt.bam"
+    output:
+        "{sample}_depth.tsv"
+    shell:
+        "samtools depth -a {input} > {output}"
